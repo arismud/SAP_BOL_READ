@@ -1,0 +1,97 @@
+*&---------------------------------------------------------------------*
+*& Report  ZTEST_BOL_READ
+*&
+*&---------------------------------------------------------------------*
+*&
+*&
+*&---------------------------------------------------------------------*
+REPORT  ztest_bol_read.
+DATA :v_bol_core           TYPE REF TO cl_crm_bol_core,
+      v_qs                 TYPE REF TO cl_crm_bol_query_service,
+      v_iterator           TYPE REF TO if_bol_entity_col_iterator,
+      v_search_result_coll TYPE REF TO if_bol_entity_col,
+      v_btorder            TYPE REF TO cl_crm_bol_entity,
+      v_btheader           TYPE REF TO cl_crm_bol_entity.
+
+DATA: wa_btadminh TYPE crmst_adminh_btil,
+      i_btadminh  TYPE STANDARD TABLE OF crmst_adminh_btil INITIAL SIZE 0.
+
+DATA: v_alv     TYPE REF TO cl_salv_table,
+      v_columns TYPE REF TO cl_salv_columns_table.
+
+PARAMETERS: p_bp TYPE bu_partner OBLIGATORY.
+
+AT SELECTION-SCREEN OUTPUT.
+  DATA: l_i_seltexts  TYPE STANDARD TABLE OF rsseltexts INITIAL SIZE 0,
+        l_wa_seltexts TYPE rsseltexts.
+
+  CLEAR l_wa_seltexts.
+  l_wa_seltexts-name = 'P_BP'.
+  l_wa_seltexts-kind = 'P'.
+  l_wa_seltexts-text = 'Business Partner'.
+  APPEND l_wa_seltexts TO l_i_seltexts.
+
+  CALL FUNCTION 'SELECTION_TEXTS_MODIFY'
+    EXPORTING
+      program                     = sy-repid
+    TABLES
+      seltexts                    = l_i_seltexts
+    EXCEPTIONS
+      program_not_found           = 1
+      program_cannot_be_generated = 2
+      OTHERS                      = 3.
+  IF sy-subrc <> 0.
+    MESSAGE ID sy-msgid TYPE sy-msgty NUMBER sy-msgno
+            WITH sy-msgv1 sy-msgv2 sy-msgv3 sy-msgv4.
+  ENDIF.
+
+START-OF-SELECTION.
+
+  v_bol_core = cl_crm_bol_core=>get_instance( ).
+  v_bol_core->start_up( 'CRMIC_DEFAULT' ).
+  v_qs = cl_crm_bol_query_service=>get_instance( 'BTQuery1O' ).
+
+  CALL METHOD v_qs->set_property
+    EXPORTING
+      iv_attr_name = 'BP_NUMBER'
+      iv_value     = p_bp.
+
+  v_search_result_coll = v_qs->get_query_result( ).
+  IF v_search_result_coll IS BOUND.
+    v_iterator = v_search_result_coll->get_iterator( ).
+  ENDIF.
+  IF v_iterator IS BOUND.
+    v_btorder = v_iterator->get_first( ).
+  ENDIF.
+
+  WHILE v_btorder IS BOUND.
+    v_btheader = v_btorder->get_related_entity( 'BTOrderHeader' ).
+    v_btheader->get_properties( IMPORTING es_attributes = wa_btadminh ).
+
+    APPEND wa_btadminh TO i_btadminh.
+    v_btorder = v_iterator->get_next( ).
+  ENDWHILE.
+
+END-OF-SELECTION.
+
+  IF i_btadminh IS NOT INITIAL.
+
+    TRY.
+        CALL METHOD cl_salv_table=>factory
+          IMPORTING
+            r_salv_table = v_alv
+          CHANGING
+            t_table      = i_btadminh.
+      CATCH cx_salv_msg .                               "#EC NO_HANDLER
+
+    ENDTRY.
+
+    v_columns = v_alv->get_columns( ).
+    v_columns->set_optimize( abap_true ).
+    v_alv->display( ).
+
+
+  ELSE.
+    MESSAGE i001(00) WITH 'No data found!'.
+    LEAVE LIST-PROCESSING.
+  ENDIF.
